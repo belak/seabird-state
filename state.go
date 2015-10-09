@@ -23,8 +23,10 @@ type State struct {
 	currentNick string
 
 	chanModes []string
-	prefixes  map[rune]rune
 	isupport  map[string]string
+
+	prefixModes  map[rune]rune
+	modePrefixes map[rune]rune
 }
 
 func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
@@ -72,8 +74,9 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 
 func (s *State) clear() {
 	s.isupport = make(map[string]string)
-	s.prefixes = make(map[rune]rune)
 	s.chanModes = []string{"", "", "", ""}
+	s.prefixModes = make(map[rune]rune)
+	s.modePrefixes = make(map[rune]rune)
 
 	// Create a bogus message to send through callback005 so we
 	// ensure any defaults which would have set special values
@@ -195,5 +198,4 @@ func (s *State) callback353(b *bot.Bot, m *irc.Message) {
 // RPL_ENDOFNAMES
 func (s *State) callback366(b *bot.Bot, m *irc.Message) {
 	// :hades.arpa 366 guest #tethys :End of /NAMES list.
-
 }

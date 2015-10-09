@@ -81,7 +81,8 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 				s.chanModes[i] = modeSplit[i]
 			}
 		case "prefix":
-			s.prefixes = make(map[rune]rune)
+			s.prefixModes = make(map[rune]rune)
+			s.modePrefixes = make(map[rune]rune)
 
 			prefixParts := prefixRegex.FindStringSubmatch(split[1])
 			if prefixParts == nil || len(prefixParts[1]) != len(prefixParts[2]) {
@@ -89,7 +90,8 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 			}
 
 			for i := 0; i < len(prefixParts[1]); i++ {
-				s.prefixes[rune(prefixParts[1][i])] = rune(prefixParts[2][i])
+				s.modePrefixes[rune(prefixParts[1][i])] = rune(prefixParts[2][i])
+				s.prefixModes[rune(prefixParts[2][i])] = rune(prefixParts[1][i])
 			}
 		}
 	}
