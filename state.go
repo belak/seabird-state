@@ -24,12 +24,17 @@ func init() {
 type State struct {
 	currentNick string
 
+	// These come from 004
+	userModes map[rune]bool
+
+	// These come from 005
 	chanTypes map[rune]bool
 	chanModes []map[rune]bool
-	userModes map[rune]bool
 	isupport  map[string]string
 
-	prefixModes  map[rune]rune
+	// @ -> o
+	prefixModes map[rune]rune
+	// o -> @
 	modePrefixes map[rune]rune
 }
 
@@ -53,9 +58,6 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 
 	b.BasicMux.Event("353", s.callback353) // RPL_NAMES
 	b.BasicMux.Event("366", s.callback366) // RPL_ENDOFNAMES
-
-	// b.BasicMux.Event("004", s.debugCallback)
-	// b.BasicMux.Event("005", s.debugCallback)
 
 	// TODO: CAP REQ multi-prefix
 
@@ -288,6 +290,10 @@ func (s *State) callback001(b *bot.Bot, m *irc.Message) {
 
 // RPL_MYINFO
 func (s *State) callback004(b *bot.Bot, m *irc.Message) {
+	// NOTE: This would work for more than userModes, but we set a
+	// number of other things in 005 so there's no point setting
+	// them here. Plus, for compatibility, we can only get a
+	// limited subset of what we can get from 005.
 	s.userModes = make(map[rune]bool)
 
 	umodes := m.Params[3]
