@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"log"
+	"unicode/utf8"
 
 	"github.com/belak/irc"
 	"github.com/belak/seabird/bot"
@@ -22,7 +23,9 @@ func init() {
 type State struct {
 	currentNick string
 
+	chanTypes map[rune]bool
 	chanModes []map[rune]bool
+	userModes map[rune]bool
 	isupport  map[string]string
 
 	prefixModes  map[rune]rune
@@ -41,6 +44,7 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 	b.BasicMux.Event("QUIT", s.quitCallback)
 
 	b.BasicMux.Event("001", s.callback001) // RPL_WELCOME
+	b.BasicMux.Event("004", s.callback004) // RPL_MYINFO
 	b.BasicMux.Event("005", s.callback005) // RPL_ISUPPORT
 
 	b.BasicMux.Event("352", s.callback352) // RPL_WHOREPLY
@@ -48,6 +52,9 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 
 	b.BasicMux.Event("353", s.callback353) // RPL_NAMES
 	b.BasicMux.Event("366", s.callback366) // RPL_ENDOFNAMES
+
+	// b.BasicMux.Event("004", s.debugCallback)
+	// b.BasicMux.Event("005", s.debugCallback)
 
 	// TODO: CAP REQ multi-prefix
 
@@ -80,6 +87,8 @@ func (s *State) clear() {
 		map[rune]bool{},
 		map[rune]bool{},
 	}
+	s.chanTypes = make(map[rune]bool)
+	s.userModes = make(map[rune]bool)
 	s.prefixModes = make(map[rune]rune)
 	s.modePrefixes = make(map[rune]rune)
 
@@ -97,6 +106,10 @@ func (s *State) clear() {
 	m.Params = append(m.Params, "are supported by this server.")
 
 	s.callback005(nil, m)
+}
+
+func (s *State) debugCallback(b *bot.Bot, m *irc.Message) {
+	log.Printf("%+v", m)
 }
 
 func (s *State) joinCallback(b *bot.Bot, m *irc.Message) {
@@ -129,11 +142,19 @@ func (s *State) partCallback(b *bot.Bot, m *irc.Message) {
 	}
 }
 
+func (s *State) IsChannel(name string) bool {
+	r, size := utf8.DecodeRuneInString(name)
+	return size != 0 && s.chanTypes[r]
+}
+
 func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 	log.Printf("%+v", m)
 
+	target := m.Params[0]
 	modestring := m.Params[1]
 	msgParams := m.Params[2:]
+
+	isChannel := s.IsChannel(target)
 
 	// Convenience function to modify the slice and pop the first param
 	popParam := func() (string, error) {
@@ -148,64 +169,71 @@ func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 	}
 
 	state := '+'
-
 	for _, v := range modestring {
 		if v == '+' || v == '-' {
 			state = v
-		} else if ok := s.chanModes[0][v]; ok {
-			// list-like (always take param)
-			p, err := popParam()
-			if err != nil {
-				continue
-			}
-
-			if state == '+' {
-				log.Printf("Adding %s to list for mode %s", p, string(v))
-			} else {
-				log.Printf("Removing %s from list for mode %s", p, string(v))
-			}
-		} else if ok := s.chanModes[1][v]; ok {
-			// key-like (always take param)
-			p, err := popParam()
-			if err != nil {
-				continue
-			}
-
-			if state == '+' {
-				log.Printf("Setting mode %s with param %s", string(v), p)
-			} else {
-				log.Printf("Unsetting mode %s with param %s", string(v), p)
-			}
-		} else if ok := s.chanModes[2][v]; ok {
-			// limit-like (take param if in + state)
-			if state == '+' {
+		} else if isChannel {
+			if ok := s.chanModes[0][v]; ok {
+				// list-like (always take param)
 				p, err := popParam()
 				if err != nil {
 					continue
 				}
 
-				log.Printf("Setting mode %s to %s", string(v), p)
-			} else {
-				log.Printf("Unsetting mode %s", string(v))
-			}
-		} else if ok := s.chanModes[3][v]; ok {
-			// settings (never take param)
-			if state == '+' {
-				log.Printf("Setting mode %s", string(v))
-			} else {
-				log.Printf("Unsetting mode %s", string(v))
-			}
-		} else if mp, ok := s.modePrefixes[v]; ok {
-			// user prefix (always take param)
-			p, err := popParam()
-			if err != nil {
-				continue
-			}
+				if state == '+' {
+					log.Printf("Adding %s to list for mode %s", p, string(v))
+				} else {
+					log.Printf("Removing %s from list for mode %s", p, string(v))
+				}
+			} else if ok := s.chanModes[1][v]; ok {
+				// key-like (always take param)
+				p, err := popParam()
+				if err != nil {
+					continue
+				}
 
+				if state == '+' {
+					log.Printf("Setting mode %s with param %s", string(v), p)
+				} else {
+					log.Printf("Unsetting mode %s with param %s", string(v), p)
+				}
+			} else if ok := s.chanModes[2][v]; ok {
+				// limit-like (take param if in + state)
+				if state == '+' {
+					p, err := popParam()
+					if err != nil {
+						continue
+					}
+
+					log.Printf("Setting mode %s to %s", string(v), p)
+				} else {
+					log.Printf("Unsetting mode %s", string(v))
+				}
+			} else if ok := s.chanModes[3][v]; ok {
+				// settings (never take param)
+				if state == '+' {
+					log.Printf("Setting mode %s", string(v))
+				} else {
+					log.Printf("Unsetting mode %s", string(v))
+				}
+			} else if mp, ok := s.modePrefixes[v]; ok {
+				// user prefix (always take param)
+				p, err := popParam()
+				if err != nil {
+					continue
+				}
+
+				if state == '+' {
+					log.Printf("Setting prefix %s (%s) on user %s", string(mp), string(v), p)
+				} else {
+					log.Printf("Unsetting prefix %s (%s) on user %s", string(mp), string(v), p)
+				}
+			}
+		} else {
 			if state == '+' {
-				log.Printf("Setting prefix %s (%s) on user %s", string(mp), string(v), p)
+				log.Printf("Setting user mode %s", string(v))
 			} else {
-				log.Printf("Unsetting prefix %s (%s) on user %s", string(mp), string(v), p)
+				log.Printf("Unsetting user mode %s", string(v))
 			}
 		}
 	}
@@ -246,6 +274,16 @@ func (s *State) nickCallback(b *bot.Bot, m *irc.Message) {
 func (s *State) callback001(b *bot.Bot, m *irc.Message) {
 	s.currentNick = m.Params[0]
 	s.clear()
+}
+
+// RPL_MYINFO
+func (s *State) callback004(b *bot.Bot, m *irc.Message) {
+	s.userModes = make(map[rune]bool)
+
+	umodes := m.Params[3]
+	for _, mode := range umodes {
+		s.userModes[mode] = true
+	}
 }
 
 // RPL_WHOREPLY

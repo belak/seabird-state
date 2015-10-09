@@ -88,6 +88,12 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 					s.chanModes[i][c] = true
 				}
 			}
+		case "chantypes":
+			s.chanTypes = make(map[rune]bool)
+
+			for _, c := range split[1] {
+				s.chanTypes[c] = true
+			}
 		case "prefix":
 			s.prefixModes = make(map[rune]rune)
 			s.modePrefixes = make(map[rune]rune)
