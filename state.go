@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"log"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/belak/irc"
@@ -92,10 +93,19 @@ func (s *State) clear() {
 	s.prefixModes = make(map[rune]rune)
 	s.modePrefixes = make(map[rune]rune)
 
+	// Create a bogus message to send through callback004 to set
+	// some defaults we're missing.
+	m := &irc.Message{
+		Prefix:  &irc.Prefix{},
+		Command: "004",
+		Params:  []string{"", "", "", "Oiorw"},
+	}
+	s.callback004(nil, m)
+
 	// Create a bogus message to send through callback005 so we
 	// ensure any defaults which would have set special values
 	// actually set things.
-	m := &irc.Message{
+	m = &irc.Message{
 		Prefix:  &irc.Prefix{},
 		Command: "005",
 		Params:  []string{},
@@ -302,21 +312,48 @@ func (s *State) callback352(b *bot.Bot, m *irc.Message) {
 	)
 
 	log.Printf("Flags for %s!%s@%s on %s: %s", nick, user, host, channel, flags)
+	if flags[0] == 'H' {
+		log.Println("User is here")
+		flags = flags[1:]
+	} else if flags[0] == 'G' {
+		log.Println("User is away")
+		flags = flags[1:]
+	}
+
+	for _, c := range flags {
+		log.Printf("User has prefix %s (%s)", string(c), string(s.prefixModes[c]))
+	}
 }
 
 // RPL_ENDOFWHO
 func (s *State) callback315(b *bot.Bot, m *irc.Message) {
 	// :kenny.chatspike.net 315 guest #test :End of /WHO list.
-
+	log.Printf("End of WHO for %s", m.Params[1])
 }
 
 // RPL_NAMES
 func (s *State) callback353(b *bot.Bot, m *irc.Message) {
 	// :hades.arpa 353 guest = #tethys :~&@%+aji &@Attila @+alyx +KindOne Argure
+	channel := m.Params[2]
+	for _, name := range strings.Split(m.Trailing(), " ") {
+		// Trim prefix chars from the left
+		user := strings.TrimLeftFunc(name, func(r rune) bool {
+			_, ok := s.prefixModes[r]
+			return ok
+		})
 
+		// Grab just the modes from the original string
+		modes := strings.TrimSuffix(name, user)
+
+		// Loop through each of the modes
+		for _, p := range modes {
+			log.Printf("User %s has prefix %s (%s) in channel %s", user, string(p), string(s.prefixModes[p]), channel)
+		}
+	}
 }
 
 // RPL_ENDOFNAMES
 func (s *State) callback366(b *bot.Bot, m *irc.Message) {
 	// :hades.arpa 366 guest #tethys :End of /NAMES list.
+	log.Printf("End of NAMES for %s", m.Params[1])
 }
