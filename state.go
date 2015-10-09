@@ -22,7 +22,9 @@ func init() {
 type State struct {
 	currentNick string
 
-	isupport map[string]string
+	chanModes []string
+	prefixes  map[rune]rune
+	isupport  map[string]string
 }
 
 func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
@@ -70,6 +72,23 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 
 func (s *State) clear() {
 	s.isupport = make(map[string]string)
+	s.prefixes = make(map[rune]rune)
+	s.chanModes = []string{"", "", "", ""}
+
+	// Create a bogus message to send through callback005 so we
+	// ensure any defaults which would have set special values
+	// actually set things.
+	m := &irc.Message{
+		Prefix:  &irc.Prefix{},
+		Command: "005",
+		Params:  []string{},
+	}
+	for k := range isupportDefaults {
+		m.Params = append(m.Params, "-"+k)
+	}
+	m.Params = append(m.Params, "are supported by this server.")
+
+	s.callback005(nil, m)
 }
 
 func (s *State) joinCallback(b *bot.Bot, m *irc.Message) {

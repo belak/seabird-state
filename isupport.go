@@ -53,14 +53,6 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 	// as the first should always be the nick and the last should
 	// always be "are supported by this server."
 	for i := 1; i < len(m.Params)-1; i++ {
-		// If the param starts with a -, we reset to the
-		// default value
-		if strings.HasPrefix(m.Params[i], "-") {
-			param := s.Normalize(m.Params[i])
-			delete(s.isupport, param[1:])
-			continue
-		}
-
 		// Ensure there's SOMETHING for the second param in
 		// the split
 		split := strings.SplitN(m.Params[i], "=", 2)
@@ -69,6 +61,36 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 			split = append(split, "")
 		}
 
-		s.isupport[split[0]] = split[1]
+		// If the param starts with a -, we reset to the
+		// default value
+		if strings.HasPrefix(split[0], "-") {
+			delete(s.isupport, split[0][1:])
+		} else {
+			// Set it in a generic way before moving on to
+			// the specifics
+			s.isupport[split[0]] = split[1]
+		}
+
+		// Special handling of specific ISUPPORT tokens
+		split[1] = s.ISupport(split[0])
+		switch split[0] {
+		case "chanmodes":
+			s.chanModes = []string{"", "", "", ""}
+			modeSplit := strings.SplitN(split[1], ",", 5)
+			for i := 0; i < len(modeSplit) && i < 4; i++ {
+				s.chanModes[i] = modeSplit[i]
+			}
+		case "prefix":
+			s.prefixes = make(map[rune]rune)
+
+			prefixParts := prefixRegex.FindStringSubmatch(split[1])
+			if prefixParts == nil || len(prefixParts[1]) != len(prefixParts[2]) {
+				continue
+			}
+
+			for i := 0; i < len(prefixParts[1]); i++ {
+				s.prefixes[rune(prefixParts[1][i])] = rune(prefixParts[2][i])
+			}
+		}
 	}
 }
