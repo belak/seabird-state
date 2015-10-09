@@ -75,10 +75,18 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 		split[1] = s.ISupport(split[0])
 		switch split[0] {
 		case "chanmodes":
-			s.chanModes = []string{"", "", "", ""}
+			s.chanModes = []map[rune]bool{
+				map[rune]bool{},
+				map[rune]bool{},
+				map[rune]bool{},
+				map[rune]bool{},
+			}
+
 			modeSplit := strings.SplitN(split[1], ",", 5)
 			for i := 0; i < len(modeSplit) && i < 4; i++ {
-				s.chanModes[i] = modeSplit[i]
+				for _, c := range modeSplit[i] {
+					s.chanModes[i][c] = true
+				}
 			}
 		case "prefix":
 			s.prefixModes = make(map[rune]rune)

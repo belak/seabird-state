@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"log"
-	"strings"
 
 	"github.com/belak/irc"
 	"github.com/belak/seabird/bot"
@@ -23,7 +22,7 @@ func init() {
 type State struct {
 	currentNick string
 
-	chanModes []string
+	chanModes []map[rune]bool
 	isupport  map[string]string
 
 	prefixModes  map[rune]rune
@@ -75,7 +74,12 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 
 func (s *State) clear() {
 	s.isupport = make(map[string]string)
-	s.chanModes = []string{"", "", "", ""}
+	s.chanModes = []map[rune]bool{
+		map[rune]bool{},
+		map[rune]bool{},
+		map[rune]bool{},
+		map[rune]bool{},
+	}
 	s.prefixModes = make(map[rune]rune)
 	s.modePrefixes = make(map[rune]rune)
 
@@ -148,7 +152,7 @@ func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 	for _, v := range modestring {
 		if v == '+' || v == '-' {
 			state = v
-		} else if strings.IndexRune(s.chanModes[0], v) != -1 {
+		} else if ok := s.chanModes[0][v]; ok {
 			// list-like (always take param)
 			p, err := popParam()
 			if err != nil {
@@ -160,7 +164,7 @@ func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 			} else {
 				log.Printf("Removing %s from list for mode %s", p, string(v))
 			}
-		} else if strings.IndexRune(s.chanModes[1], v) != -1 {
+		} else if ok := s.chanModes[1][v]; ok {
 			// key-like (always take param)
 			p, err := popParam()
 			if err != nil {
@@ -172,7 +176,7 @@ func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 			} else {
 				log.Printf("Unsetting mode %s with param %s", string(v), p)
 			}
-		} else if strings.IndexRune(s.chanModes[2], v) != -1 {
+		} else if ok := s.chanModes[2][v]; ok {
 			// limit-like (take param if in + state)
 			if state == '+' {
 				p, err := popParam()
@@ -184,7 +188,7 @@ func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 			} else {
 				log.Printf("Unsetting mode %s", string(v))
 			}
-		} else if strings.IndexRune(s.chanModes[3], v) != -1 {
+		} else if ok := s.chanModes[3][v]; ok {
 			// settings (never take param)
 			if state == '+' {
 				log.Printf("Setting mode %s", string(v))
