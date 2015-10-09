@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"log"
 	"strings"
 
@@ -127,74 +128,80 @@ func (s *State) partCallback(b *bot.Bot, m *irc.Message) {
 func (s *State) modeCallback(b *bot.Bot, m *irc.Message) {
 	log.Printf("%+v", m)
 
-	msgParams := m.Params[1:]
+	modestring := m.Params[1]
+	msgParams := m.Params[2:]
+
+	// Convenience function to modify the slice and pop the first param
+	popParam := func() (string, error) {
+		if len(msgParams) == 0 {
+			return "", errors.New("No more params")
+		}
+
+		p := msgParams[0]
+		msgParams = msgParams[1:]
+
+		return p, nil
+	}
 
 	state := '+'
-	for len(msgParams) > 0 {
-		param := msgParams[0]
-		msgParams = msgParams[1:]
-		log.Println("Param:", param)
 
-		for _, v := range param {
-			if v == '+' || v == '-' {
-				state = v
-			} else if strings.IndexRune(s.chanModes[0], v) != -1 {
-				// list-like (always take param)
-				if len(msgParams) > 0 {
-					// Pop off the next param
-					p := msgParams[0]
-					msgParams = msgParams[1:]
+	for _, v := range modestring {
+		if v == '+' || v == '-' {
+			state = v
+		} else if strings.IndexRune(s.chanModes[0], v) != -1 {
+			// list-like (always take param)
+			p, err := popParam()
+			if err != nil {
+				continue
+			}
 
-					if state == '+' {
-						log.Printf("Adding %s to list for mode %s", p, string(v))
-					} else {
-						log.Printf("Removing %s from list for mode %s", p, string(v))
-					}
-				}
-			} else if strings.IndexRune(s.chanModes[1], v) != -1 {
-				// key-like (always take param)
-				if len(msgParams) > 0 {
-					// Pop off the next param
-					p := msgParams[0]
-					msgParams = msgParams[1:]
+			if state == '+' {
+				log.Printf("Adding %s to list for mode %s", p, string(v))
+			} else {
+				log.Printf("Removing %s from list for mode %s", p, string(v))
+			}
+		} else if strings.IndexRune(s.chanModes[1], v) != -1 {
+			// key-like (always take param)
+			p, err := popParam()
+			if err != nil {
+				continue
+			}
 
-					if state == '+' {
-						log.Printf("Setting mode %s with param %s", string(v), p)
-					} else {
-						log.Printf("Unsetting mode %s with param %s", string(v), p)
-					}
+			if state == '+' {
+				log.Printf("Setting mode %s with param %s", string(v), p)
+			} else {
+				log.Printf("Unsetting mode %s with param %s", string(v), p)
+			}
+		} else if strings.IndexRune(s.chanModes[2], v) != -1 {
+			// limit-like (take param if in + state)
+			if state == '+' {
+				p, err := popParam()
+				if err != nil {
+					continue
 				}
-			} else if strings.IndexRune(s.chanModes[2], v) != -1 {
-				// limit-like (take param if in + state)
-				if state == '+' {
-					if len(msgParams) > 0 {
-						p := msgParams[0]
-						msgParams = msgParams[1:]
 
-						log.Printf("Setting mode %s to %s", string(v), p)
-					}
-				} else {
-					log.Printf("Unsetting mode %s", string(v))
-				}
-			} else if strings.IndexRune(s.chanModes[3], v) != -1 {
-				// settings (never take param)
-				if state == '+' {
-					log.Printf("Setting mode %s", string(v))
-				} else {
-					log.Printf("Unsetting mode %s", string(v))
-				}
-			} else if mp, ok := s.modePrefixes[v]; ok {
-				// user prefix (always take param)
-				if len(msgParams) > 0 {
-					p := msgParams[0]
-					msgParams = msgParams[1:]
+				log.Printf("Setting mode %s to %s", string(v), p)
+			} else {
+				log.Printf("Unsetting mode %s", string(v))
+			}
+		} else if strings.IndexRune(s.chanModes[3], v) != -1 {
+			// settings (never take param)
+			if state == '+' {
+				log.Printf("Setting mode %s", string(v))
+			} else {
+				log.Printf("Unsetting mode %s", string(v))
+			}
+		} else if mp, ok := s.modePrefixes[v]; ok {
+			// user prefix (always take param)
+			p, err := popParam()
+			if err != nil {
+				continue
+			}
 
-					if state == '+' {
-						log.Printf("Setting prefix %s (%s) on user %s", string(mp), string(v), p)
-					} else {
-						log.Printf("Unsetting prefix %s (%s) on user %s", string(mp), string(v), p)
-					}
-				}
+			if state == '+' {
+				log.Printf("Setting prefix %s (%s) on user %s", string(mp), string(v), p)
+			} else {
+				log.Printf("Unsetting prefix %s (%s) on user %s", string(mp), string(v), p)
 			}
 		}
 	}
