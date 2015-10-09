@@ -14,11 +14,8 @@ func init() {
 
 /*
  * TODO:
- * 005 and https://tools.ietf.org/html/draft-brocklesby-irc-isupport-03
- * Determine how to do S_chan_sync
  * Public interface
  * Stop making assumptions about the number of params
- * Track bot's nick in channels as well
  */
 
 // State is a plugin which will track the state of users and channels.
