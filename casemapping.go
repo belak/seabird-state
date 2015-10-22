@@ -81,7 +81,7 @@ func (s *State) Normalize(name string) string {
 // ToLower takes the given string and lower cases it based on the
 // current CASEMAPPING setting given by the server.
 func (s *State) ToLower(name string) string {
-	switch s.ISupport("CASEMAPPING") {
+	switch *s.ISupport("CASEMAPPING") {
 	case "ascii":
 		return strings.Map(ASCIIToLower, name)
 	case "strict-rfc1459":
@@ -94,7 +94,7 @@ func (s *State) ToLower(name string) string {
 // ToUpper takes the given string and upper cases it based on the
 // current CASEMAPPING setting given by the server.
 func (s *State) ToUpper(name string) string {
-	switch s.ISupport("CASEMAPPING") {
+	switch *s.ISupport("CASEMAPPING") {
 	case "ascii":
 		return strings.Map(ASCIIToUpper, name)
 	case "strict-rfc1459":

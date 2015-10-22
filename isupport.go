@@ -34,17 +34,18 @@ var isupportDefaults = map[string]string{
 
 // ISupport returns the value for the given server setting as reported
 // by the server or the default.
-func (s *State) ISupport(name string) string {
+func (s *State) ISupport(name string) *string {
 	if v, ok := s.isupport[name]; ok {
-		return v
+		return &v
 	}
 
 	if v, ok := isupportDefaults[name]; ok {
-		return v
+		return &v
 	}
 
-	// TODO: This isn't technically correct
-	return ""
+	// If it hasn't been set and there's no default, the only
+	// valid value is nil.
+	return nil
 }
 
 // RPL_ISUPPORT
@@ -72,7 +73,12 @@ func (s *State) callback005(b *bot.Bot, m *irc.Message) {
 		}
 
 		// Special handling of specific ISUPPORT tokens
-		split[1] = s.ISupport(split[0])
+		isupport := s.ISupport(split[0])
+		if isupport == nil {
+			continue
+		}
+
+		split[1] = *isupport
 		switch split[0] {
 		case "chanmodes":
 			s.chanModes = []map[rune]bool{
