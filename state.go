@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"unicode/utf8"
@@ -36,6 +37,148 @@ type State struct {
 	prefixModes map[rune]rune
 	// o -> @
 	modePrefixes map[rune]rune
+
+	Channels map[string]*ChannelState
+	Users    map[string]*UserState
+}
+
+type UserState struct {
+	Away     bool
+	Channels map[string]bool
+}
+
+type ChannelState struct {
+	Users map[string]bool
+}
+
+func (s *State) ensureChannel(name string) *ChannelState {
+	normalizedName := s.Normalize(name)
+	c, ok := s.Channels[normalizedName]
+	if !ok {
+		c = &ChannelState{
+			Users: make(map[string]bool),
+		}
+		s.Channels[normalizedName] = c
+	}
+
+	return c
+}
+
+func (s *State) ensureUser(name string) *UserState {
+	normalizedName := s.Normalize(name)
+	u, ok := s.Users[normalizedName]
+	if !ok {
+		u = &UserState{
+			Channels: make(map[string]bool),
+		}
+		s.Users[normalizedName] = u
+	}
+
+	return u
+}
+
+func (s *State) renameUser(oldName, newName string) {
+	normalizedOld := s.Normalize(oldName)
+	normalizedNew := s.Normalize(newName)
+
+	u := s.ensureUser(oldName)
+	delete(s.Users, normalizedOld)
+	s.Users[normalizedNew] = u
+
+	// Loop through any channels we know this user is in
+	for cname := range u.Channels {
+		c := s.Channels[cname]
+
+		// Remove the old username
+		delete(c.Users, normalizedOld)
+
+		// Add the new one
+		c.Users[normalizedNew] = true
+	}
+}
+
+func (s *State) removeUser(name string) {
+	u := s.ensureUser(name)
+
+	// We can't modify this list while we're looping through it so
+	// we need a copy.
+	var channels []string
+	for c := range u.Channels {
+		channels = append(channels, c)
+	}
+
+	// Because ensureUserNotInChannel will delete the user if
+	// there are no more channels left, we can ignore it here.
+	for _, cname := range channels {
+		s.ensureUserNotInChannel(name, cname)
+	}
+}
+
+func (s *State) ensureUserInChannel(user, channel string) (*UserState, *ChannelState) {
+	// TODO: Do we want to error if the user is not the bot and
+	// the bot isn't in the channel? Might be good for
+	// consistency.
+	normalizedUser := s.Normalize(user)
+	normalizedChannel := s.Normalize(channel)
+
+	u := s.ensureUser(user)
+	c := s.ensureChannel(channel)
+
+	c.Users[normalizedUser] = true
+	u.Channels[normalizedChannel] = true
+
+	return u, c
+
+}
+
+func (s *State) ensureUserNotInChannel(user, channel string) {
+	normalizedUser := s.Normalize(user)
+	normalizedChannel := s.Normalize(channel)
+
+	// TODO: There's a chance ensureUser will add a user just to
+	// remove them. Might be good to not do this.
+	u := s.ensureUser(user)
+	c := s.ensureChannel(channel)
+
+	// Delete the current user
+	delete(c.Users, normalizedUser)
+	delete(u.Channels, normalizedChannel)
+
+	if len(u.Channels) < 1 {
+		delete(s.Users, normalizedUser)
+	}
+
+	// If the bot is leaving the channel, we need to remove all
+	// users from this channel.
+	if user == s.currentNick {
+		// We can't modify this list while we're looping through it so
+		// we need a copy.
+		var users []string
+		for uname := range c.Users {
+			users = append(users, uname)
+		}
+
+		for _, uname := range users {
+			s.ensureUserNotInChannel(uname, channel)
+		}
+
+		// The only time we actually remove a channel is when
+		// we leave it.
+		delete(s.Channels, normalizedChannel)
+	}
+}
+
+func (s *State) UserInChannel(user, channel string) bool {
+	user = s.Normalize(user)
+	channel = s.Normalize(channel)
+
+	c, ok := s.Channels[channel]
+	if !ok {
+		return false
+	}
+
+	_, ok = c.Users[user]
+	return ok
 }
 
 func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
@@ -59,7 +202,9 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 	b.BasicMux.Event("353", s.callback353) // RPL_NAMES
 	b.BasicMux.Event("366", s.callback366) // RPL_ENDOFNAMES
 
-	// TODO: CAP REQ multi-prefix
+	// Make sure we get multi-prefix enabled as that improves some
+	// of the user prefix handling.
+	b.CapReq("multi-prefix")
 
 	/* These are callbacks which might be useful eventually
 	b.BasicMux.Event("TOPIC", s.topicCallback)
@@ -79,7 +224,16 @@ func NewStatePlugin(b *bot.Bot) (bot.Plugin, error) {
 	b.BasicMux.Event("368", s.callback368) // RPL_ENDOFBANLIST
 	*/
 
+	b.BasicMux.Event("PRIVMSG", func(b *bot.Bot, m *irc.Message) {
+		fmt.Printf("%+v\n", s.Users)
+		fmt.Printf("%+v\n", s.Channels)
+	})
+
 	return s, nil
+}
+
+func (s *State) debugCallback(b *bot.Bot, m *irc.Message) {
+	log.Printf("%+v", m)
 }
 
 func (s *State) clear() {
@@ -94,6 +248,9 @@ func (s *State) clear() {
 	s.userModes = make(map[rune]bool)
 	s.prefixModes = make(map[rune]rune)
 	s.modePrefixes = make(map[rune]rune)
+
+	s.Channels = make(map[string]*ChannelState)
+	s.Users = make(map[string]*UserState)
 
 	// Create a bogus message to send through callback004 to set
 	// some defaults we're missing.
@@ -120,10 +277,6 @@ func (s *State) clear() {
 	s.callback005(nil, m)
 }
 
-func (s *State) debugCallback(b *bot.Bot, m *irc.Message) {
-	log.Printf("%+v", m)
-}
-
 func (s *State) joinCallback(b *bot.Bot, m *irc.Message) {
 	cname := m.Params[0]
 	uname := m.Prefix.Name
@@ -140,18 +293,29 @@ func (s *State) joinCallback(b *bot.Bot, m *irc.Message) {
 		// what we need.
 		b.Writef("WHO :%s", cname)
 	} else {
+		if !s.UserInChannel(s.currentNick, cname) {
+			// TODO: Log warning
+			return
+		}
+
 		// Run a WHO on the user to get the info we need
 		b.Writef("WHO :%s", uname)
 	}
+
+	s.ensureUserInChannel(uname, cname)
+
 }
 
 func (s *State) partCallback(b *bot.Bot, m *irc.Message) {
 	cname := m.Params[0]
 	uname := m.Prefix.Name
+
 	log.Printf("%s left channel %s", uname, cname)
 	if uname == s.currentNick {
 		log.Println("Bot has been left", cname)
 	}
+
+	s.ensureUserNotInChannel(uname, cname)
 }
 
 func (s *State) IsChannel(name string) bool {
@@ -260,6 +424,8 @@ func (s *State) quitCallback(b *bot.Bot, m *irc.Message) {
 		// TODO: Well, shit. At this point it probably doesn't
 		// matter what we do.
 	}
+
+	s.removeUser(uname)
 }
 
 func (s *State) kickCallback(b *bot.Bot, m *irc.Message) {
@@ -269,6 +435,8 @@ func (s *State) kickCallback(b *bot.Bot, m *irc.Message) {
 	if uname == s.currentNick {
 		log.Println("Bot has been kicked from", cname)
 	}
+
+	s.ensureUserNotInChannel(uname, cname)
 }
 
 func (s *State) nickCallback(b *bot.Bot, m *irc.Message) {
@@ -280,6 +448,8 @@ func (s *State) nickCallback(b *bot.Bot, m *irc.Message) {
 		log.Println("Updating current bot nick to", newNick)
 		s.currentNick = newNick
 	}
+
+	s.renameUser(oldNick, newNick)
 }
 
 // RPL_WELCOME
@@ -347,6 +517,8 @@ func (s *State) callback353(b *bot.Bot, m *irc.Message) {
 			_, ok := s.prefixModes[r]
 			return ok
 		})
+
+		s.ensureUserInChannel(user, channel)
 
 		// Grab just the modes from the original string
 		modes := strings.TrimSuffix(name, user)
